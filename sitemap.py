@@ -1,27 +1,36 @@
 '''
 Create a sitemap image using Graphviz
 '''
-import requests, logging, os, urlparse, sys
+import ast, logging, os,  requests, urlparse, sys
 from bs4 import BeautifulSoup
 from graphviz import Digraph
 
 
 logging.basicConfig(
     filename='%s/%s.log' %
-    (os.path.dirname(os.path.realpath(__file__)), __file__[:-3]),
+    (os.path.dirname(os.path.realpath(__file__)),
+     os.path.basename(__file__[:-3])),
     level=logging.DEBUG)
 LOG = logging.getLogger('sitemap')
+
+
+ERROR_BADARGS = 85
 
 
 class Sitemap(object):
     '''
     Crawl the given website and output a DOT structure.
     '''
-    def __init__(self, baseurl):
+    def __init__(self, baseurl, loginurl=None, loginpayload=None):
         self.baseurl = baseurl
         if not self.baseurl.endswith('/'):
             self.baseurl += '/'
         self.sitemap = {}
+        self.cookies = None
+        ## Login if necessary
+        if loginurl and loginpayload:
+            response = requests.post(loginurl, data=loginpayload, allow_redirects=False)
+            self.cookies = response.cookies
 
     def get_urls_from_response(self, url, response):
         """
@@ -74,7 +83,7 @@ class Sitemap(object):
             LOG.debug('Remaining URLs: %s', urls)
             LOG.debug('Visited URLs: %s', self.sitemap.keys())
 
-            response = requests.get(url)
+            response = requests.get(url, cookies=self.cookies)
             LOG.debug('Response: %s', response.__str__())
             LOG.debug('Response URL: %s', response.url)
 
@@ -109,6 +118,20 @@ def encode_url(url):
 
 
 if __name__ == '__main__':
-    sitemap = Sitemap(sys.argv[1])
+    if len(sys.argv) not in (2, 4):
+        exampleurl = 'http://foo.bar'
+        usagefile = os.path.basename(__file__)
+        print 'Usage:   %s baseurl [loginurl loginpayload]' % usagefile
+        print 'Example: %s %s' %  (usagefile, exampleurl)
+        print 'Example: %s %s %s/login "{\'username\': \'foo\', \'password\': \'bar\'}"' \
+            % (usagefile, exampleurl, exampleurl)
+        sys.exit(ERROR_BADARGS)
+    baseurl = sys.argv[1]
+    loginurl = None
+    loginpayload = None
+    if len(sys.argv) == 4:
+        loginurl = sys.argv[2]
+        loginpayload = ast.literal_eval(sys.argv[3])
+    sitemap = Sitemap(baseurl, loginurl, loginpayload)
     sitemap.crawl()
     print sitemap.gen_dot()

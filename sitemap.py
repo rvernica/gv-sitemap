@@ -1,7 +1,7 @@
 '''
 Create a sitemap image using Graphviz
 '''
-import ast, logging, os,  requests, urlparse, sys
+import ast, logging, os,  re, requests, sys, urlparse
 from bs4 import BeautifulSoup
 from graphviz import Digraph
 
@@ -17,37 +17,72 @@ LOG = logging.getLogger('sitemap')
 ERROR_BADARGS = 85
 
 
+class SitemapUrl(str):
+    '''
+    Wrapper for strings that store URLs in order to ignote IDs when
+    comparing URLs.
+
+    '''
+    reobf = re.compile('/\d+(?=$|/)')
+
+    def __init__(self, value):
+        ## obfuscate IDs so URLs with different IDs are considered
+        ## equal
+        self.valueobf = SitemapUrl.reobf.sub('/0', value)
+        self.valuepretty = urlparse.urlparse(
+            self.valueobf).path[1:].replace('/', '_')
+
+    def __eq__(self, other):
+        return self.valueobf.__eq__(other.valueobf)
+
+    def __ne__(self, other):
+        return self.valueobf.__ne__(other.valueobf)
+
+    def __hash__(self):
+        return self.valueobf.__hash__()
+
+    def pretty(self):
+        '''
+        Return a short nice formated string.
+        '''
+        return self.valuepretty
+
+
 class Sitemap(object):
     '''
     Crawl the given website and output a DOT structure.
     '''
     def __init__(self, baseurl, loginurl=None, loginpayload=None):
-        self.baseurl = baseurl
-        if not self.baseurl.endswith('/'):
-            self.baseurl += '/'
+        if baseurl.endswith('/'):
+            self.baseurl = SitemapUrl(baseurl)
+        else:
+            self.baseurl = SitemapUrl(baseurl + '/')
         self.sitemap = {}
         self.cookies = None
         ## Login if necessary
         if loginurl and loginpayload:
-            response = requests.post(loginurl, data=loginpayload, allow_redirects=False)
+            response = requests.post(
+                loginurl, data=loginpayload, allow_redirects=False)
             self.cookies = response.cookies
 
     def get_urls_from_response(self, url, response):
-        """
+        '''
         Extract URLs from response
-        """
+        '''
         soup = BeautifulSoup(response.text)
         urls = [link.get('href') for link in soup.find_all('a')]
         urls = self.clean_urls(urls)
-        if url != response.url:
-            self.sitemap[url] = {'outgoing': [response.url]}
-        self.sitemap[response.url] = {'outgoing': urls}
+        urlresp = SitemapUrl(response.url)
+        if url != urlresp:
+            self.sitemap[url] = {'outgoing': [urlresp]}
+        self.sitemap[urlresp] = {'outgoing': set(urls)}
         return urls
 
     def clean_urls(self, urls):
         '''
         1. Add BASE_URL to relative URLs
         2. Remove URLs from other domains
+        3. Remove GET parameters from URL
         '''
         urls_new = []
         for url in urls:
@@ -108,18 +143,11 @@ class Sitemap(object):
         '''
         dot = Digraph(comment='Site Map')
         for key in self.sitemap.keys():
-            dot.node(encode_url(key))
+            dot.node(key.pretty())
         for (key, value) in self.sitemap.items():
             for key2 in value['outgoing']:
-                dot.edge(encode_url(key), encode_url(key2))
+                dot.edge(key.pretty(), key2.pretty())
         return dot.source
-
-
-def encode_url(url):
-    '''
-    map URL to a DOT accepted ID
-    '''
-    return urlparse.urlparse(url).path.replace('/', '_')
 
 
 if __name__ == '__main__':

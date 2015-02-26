@@ -69,7 +69,9 @@ class Sitemap(object):
         '''
         urls_filtered = []
         for url in urls_new:
-            if url in self.sitemap.keys() or url in urls:
+            if url in self.sitemap.keys() \
+               or url in urls \
+               or url in urls_filtered:
                 continue
             urls_filtered.append(url)
         return urls_filtered

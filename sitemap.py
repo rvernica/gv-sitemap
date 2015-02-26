@@ -1,7 +1,7 @@
 '''
 Create a sitemap image using Graphviz
 '''
-import ast, logging, os,  re, requests, sys, urlparse
+import argparse, ast, json, logging, os,  re, requests, sys, urlparse
 from bs4 import BeautifulSoup
 from graphviz import Digraph
 
@@ -14,21 +14,20 @@ logging.basicConfig(
 LOG = logging.getLogger('sitemap')
 
 
-ERROR_BADARGS = 85
-
-
 class SitemapUrl(str):
     '''
     Wrapper for strings that store URLs in order to ignote IDs when
     comparing URLs.
 
     '''
+    enabled = True
     reobf = re.compile('/\d+(?=$|/)')
 
     def __init__(self, value):
-        ## obfuscate IDs so URLs with different IDs are considered
+        ## ignore IDs so URLs with different IDs are considered
         ## equal
-        self.valueobf = SitemapUrl.reobf.sub('/0', value)
+        self.valueobf = SitemapUrl.reobf.sub('/0', value) \
+                        if SitemapUrl.enabled else value
         self.valuepretty = urlparse.urlparse(
             self.valueobf).path[1:].replace('/', '_')
 
@@ -52,18 +51,22 @@ class Sitemap(object):
     '''
     Crawl the given website and output a DOT structure.
     '''
-    def __init__(self, baseurl, loginurl=None, loginpayload=None):
+    def __init__(self, baseurl, authurl=None, authpayload=None,
+                 skipbaseback = False, skipbase = False, skipauth = None):
         if baseurl.endswith('/'):
             self.baseurl = SitemapUrl(baseurl)
         else:
             self.baseurl = SitemapUrl(baseurl + '/')
         self.sitemap = {}
         self.cookies = None
-        ## Login if necessary
-        if loginurl and loginpayload:
+        ## Auth if necessary
+        if authurl and authpayload:
             response = requests.post(
-                loginurl, data=loginpayload, allow_redirects=False)
+                authurl, data=authpayload, allow_redirects=False)
             self.cookies = response.cookies
+        self.skipbaseback = skipbaseback
+        self.skipbase = skipbase
+        self.skipauth = skipauth
 
     def get_urls_from_response(self, url, response):
         '''
@@ -73,9 +76,12 @@ class Sitemap(object):
         urls = [link.get('href') for link in soup.find_all('a')]
         urls = self.clean_urls(urls)
         urlresp = SitemapUrl(response.url)
-        if url != urlresp:
-            self.sitemap[url] = {'outgoing': [urlresp]}
-        self.sitemap[urlresp] = {'outgoing': set(urls)}
+        # if url != urlresp:
+        #     self.sitemap[url] = {'outgoing': [urlresp]}
+        urlsout = [u for u in set(urls) \
+                   if ('auth' not in u)
+                   and (not self.skipbaseback or u != self.baseurl)]
+        self.sitemap[urlresp] = {'outgoing': urlsout}
         return urls
 
     def clean_urls(self, urls):
@@ -136,12 +142,29 @@ class Sitemap(object):
             urls.extend(urls_new)
 
         LOG.info('Sitemap: %s', self.sitemap.__str__())
+        self.clean()
+
+    def clean(self):
+        '''
+        1. Remove base URL
+        2. Remove authentication URLs
+        '''
+        if self.skipbase:
+            del self.sitemap[self.baseurl]
+        if self.skipauth:
+            for key in self.sitemap.keys():
+                if self.skipauth in key:
+                    del self.sitemap[key]
+        if self.skipbase or self.skipauth:
+            for (key, value) in self.sitemap:
+                self.sitemap[key] = [u for u in value if not
 
     def gen_dot(self):
         '''
         Generate the DOT file for Graphviz
         '''
-        dot = Digraph(comment='Site Map')
+        dot = Digraph(comment='Sitemap')
+        # dot.rankdir = 'LR'
         for key in self.sitemap.keys():
             dot.node(key.pretty())
         for (key, value) in self.sitemap.items():
@@ -151,20 +174,47 @@ class Sitemap(object):
 
 
 if __name__ == '__main__':
-    if len(sys.argv) not in (2, 4):
-        exampleurl = 'http://foo.bar'
-        usagefile = os.path.basename(__file__)
-        print 'Usage:   %s baseurl [loginurl loginpayload]' % usagefile
-        print 'Example: %s %s' %  (usagefile, exampleurl)
-        print 'Example: %s %s %s/login "{\'username\': \'foo\', \'password\': \'bar\'}"' \
-            % (usagefile, exampleurl, exampleurl)
-        sys.exit(ERROR_BADARGS)
-    baseurl = sys.argv[1]
-    loginurl = None
-    loginpayload = None
-    if len(sys.argv) == 4:
-        loginurl = sys.argv[2]
-        loginpayload = ast.literal_eval(sys.argv[3])
-    sitemap = Sitemap(baseurl, loginurl, loginpayload)
+    ## Argument Parser
+    parser = argparse.ArgumentParser(
+        description='Crawl website and output GraphViz input file '
+         + 'containing sitemap.')
+    parser.add_argument(
+        'baseurl',
+        help='Base URL of the website.')
+    parser.add_argument(
+        '--authurl',
+        help='URL for POST authentication.')
+    parser.add_argument(
+        '--authpayload',
+        help='Payload for the POST authentication. e.g., '
+        + '\'{"username": "foo", "password": "bar"}\'',
+        type=json.loads)
+    parser.add_argument(
+        '--ignoreid',
+        help='Ignore URLs where the difference is just an integer. '
+         + 'e.g., if http://foo/1/bar and http://foo/2/bar '
+         + 'are both present only one of them is visited.',
+        action='store_true')
+    parser.add_argument(
+        '--skipbaseback',
+        help='Repress links back to base URL from the sitemap',
+        action='store_true')
+    parser.add_argument(
+        '--skipbase',
+        help='Repress base URL from the sitemap',
+        action='store_true')
+    parser.add_argument(
+        '--skipauth',
+        help='Repress authenticaiton URLs containing the given string '
+        + 'from the sitemap')
+
+    if ('--authurl' in sys.argv) and ('--authpayload' not in sys.argv):
+        parser.error('--authpayload needs to be set if --authurl is used')
+
+
+    args = parser.parse_args()
+    SitemapUrl.enabled = args.ignoreid
+    sitemap = Sitemap(args.baseurl, args.authurl, args.authpayload,
+                      args.skipbaseback, args.skipbase, args.skipauth)
     sitemap.crawl()
     print sitemap.gen_dot()

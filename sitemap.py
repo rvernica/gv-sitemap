@@ -57,7 +57,10 @@ class Sitemap(object):
                 url = self.baseurl + url[1:]
             if not url.startswith(self.baseurl):
                 continue
-            urls_new.append(url)
+            urlsplit = urlparse.urlparse(url)
+            urls_new.append(
+                SitemapUrl(urlsplit.scheme + '://' +
+                           urlsplit.netloc + urlsplit.path))
         return urls_new
 
     def filter_ulrs(self, urls_new, urls):

@@ -156,8 +156,11 @@ class Sitemap(object):
                 if self.skipauth in key:
                     del self.sitemap[key]
         if self.skipbase or self.skipauth:
-            for (key, value) in self.sitemap:
-                self.sitemap[key] = [u for u in value if not
+            for (key, value) in self.sitemap.items():
+                self.sitemap[key]['outgoing'] = \
+                    [u for u in value['outgoing']
+                     if (self.skipbase and not u == self.baseurl)
+                     or (self.skipauth and not self.skipauth in u)]
 
     def gen_dot(self):
         '''

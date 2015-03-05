@@ -1,6 +1,18 @@
 # gv-sitemap
 
-Create a sitemap image using Graphviz
+Create a sitemap image using Graphviz.
+
+About
+=====
+
+The sitemap.py script takes an URL as input and generates a GraphViz
+(.gv) graph at the output. The graph is a representation of the
+website starting at the given URL. The GraphViz graph can then be
+processed using the GraphViz tool set (e.g., dot) to produce an image.
+
+The script can generate screenshots for each page using the python-webkit2png
+library https://github.com/adamn/python-webkit2png which needs to be
+installed separately. Use the --getscreenshots option.
 
 Usage
 =====
@@ -30,13 +42,13 @@ Usage
                             originating from.
       --skipbase            Repress base URL from the sitemap
       --skipbaseback        Repress links back to base URL from the sitemap
-      --skipauth SKIPAUTH   Repress authenticaiton URLs containing the given
+      --skipauth SKIPAUTH   Repress authentication URLs containing the given
                             string from the sitemap
       --skipdownload SKIPDOWNLOAD
                             Skip downloading the URLs containing the given string.
       --getscreenshots      Take screenshots of each page for use as node image.
       --skipscreenshot SKIPSCREENSHOT
-                            Repress authenticaiton URLs containing the given
+                            Repress authentication URLs containing the given
                             string from the sitemap
 
 Example

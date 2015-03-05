@@ -227,7 +227,7 @@ if __name__ == '__main__':
         action='store_true')
     parser.add_argument(
         '--skipauth',
-        help='Repress authenticaiton URLs containing the given string '
+        help='Repress authentication URLs containing the given string '
         + 'from the sitemap')
     parser.add_argument(
         '--skipdownload',
@@ -238,8 +238,7 @@ if __name__ == '__main__':
         action='store_true')
     parser.add_argument(
         '--skipscreenshot',
-        help='Repress authenticaiton URLs containing the given string '
-        + 'from the sitemap')
+        help='Repress screenshots for URLs containing the given string.')
 
     if ('--authurl' in sys.argv) and ('--authpayload' not in sys.argv):
         parser.error('--authpayload needs to be set if --authurl is used')

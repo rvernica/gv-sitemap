@@ -16,6 +16,7 @@ except NameError:
     LOG = logging.getLogger('sitemap')
 
 
+from screenshot import Screenshot
 from sitemapurl import SitemapUrl
 
 
@@ -23,8 +24,12 @@ class Sitemap(object):
     '''
     Crawl the given website and output a DOT structure.
     '''
+    screenshot_dir = 'screenshots'
+
     def __init__(self, baseurl, authurl=None, authpayload=None,
-                 skipbaseback = False, skipbase = False, skipauth = None):
+                 skipself=False, skipbase=False, skipbaseback=False,
+                 skipauth=None, skipdownload=None, skipscreenshot=None,
+                 getscreenshots=False):
         if baseurl.endswith('/'):
             self.baseurl = SitemapUrl(baseurl)
         else:
@@ -36,9 +41,13 @@ class Sitemap(object):
             response = requests.post(
                 authurl, data=authpayload, allow_redirects=False)
             self.cookies = response.cookies
-        self.skipbaseback = skipbaseback
+        self.skipself = skipself
         self.skipbase = skipbase
+        self.skipbaseback = skipbaseback
         self.skipauth = skipauth
+        self.skipdownload = skipdownload
+        self.skipscreenshot = skipscreenshot
+        self.getscreenshots = getscreenshots
 
     def get_urls_from_response(self, url, response):
         '''
@@ -48,12 +57,13 @@ class Sitemap(object):
         urls = [link.get('href') for link in soup.find_all('a')]
         urls = self.clean_urls(urls)
         urlresp = SitemapUrl(response.url)
-        # if url != urlresp:
-        #     self.sitemap[url] = {'outgoing': [urlresp]}
+        if url != urlresp:
+            self.sitemap[url] = {'outgoing': [urlresp]}
         urlsout = [u for u in set(urls) \
-                   if ('auth' not in u)
-                   and (not self.skipbaseback or u != self.baseurl)]
-        self.sitemap[urlresp] = {'outgoing': urlsout}
+                   if (not self.skipself or u != url)
+                   and (not self.skipbaseback or u != self.baseurl)
+                   and ('auth' not in u)]
+        self.sitemap[urlresp] = {'outgoing': urlsout, 'image': None}
         return urls
 
     def clean_urls(self, urls):
@@ -70,10 +80,7 @@ class Sitemap(object):
                 url = self.baseurl + url[1:]
             if not url.startswith(self.baseurl):
                 continue
-            urlsplit = urlparse.urlparse(url)
-            urls_new.append(
-                SitemapUrl(urlsplit.scheme + '://' +
-                           urlsplit.netloc + urlsplit.path))
+            urls_new.append(SitemapUrl(url))
         return urls_new
 
     def filter_ulrs(self, urls_new, urls):
@@ -97,6 +104,11 @@ class Sitemap(object):
         urls = [self.baseurl]
         while len(urls) != 0:
             url = urls.pop(0)
+
+            if self.skipdownload and self.skipdownload in url:
+                LOG.debug('Skip URL: %s', url)
+                continue
+
             LOG.debug('Request URL: %s', url)
             LOG.debug('Remaining URLs: %s', urls)
             LOG.debug('Visited URLs: %s', self.sitemap.keys())
@@ -134,14 +146,45 @@ class Sitemap(object):
                      if (self.skipbase and not u == self.baseurl)
                      or (self.skipauth and not self.skipauth in u)]
 
+    def screenshots(self):
+        '''
+        Take screenshots of all the pages in sitemap.
+        '''
+        if not os.path.exists(Sitemap.screenshot_dir):
+            os.makedirs(Sitemap.screenshot_dir)
+
+        cookies_list = []
+        for (key, value) in self.cookies.items():
+            cookies_list.append(key + '=' + value)
+
+        urls = []
+        for url in self.sitemap.keys():
+            if not self.skipscreenshot \
+               or self.skipscreenshot not in url:
+                urls.append(url)
+                self.sitemap[url]['image'] = os.path.join(
+                    Sitemap.screenshot_dir, url.pretty() + '.png')
+        screenshot = Screenshot(path=Sitemap.screenshot_dir)
+        screenshot.screenshot(urls, cookies_list)
+
     def gen_dot(self):
         '''
         Generate the DOT file for Graphviz
         '''
-        dot = Digraph(comment='Sitemap')
-        # dot.rankdir = 'LR'
-        for key in self.sitemap.keys():
-            dot.node(key.pretty())
+        dot = Digraph(comment='Sitemap',
+                      graph_attr={'splines':'ortho',
+                                  'concentrate':'true'},
+                      node_attr={'fontsize':'60',
+                                 'labelloc':'b',
+                                 'shape':'box'},
+                      edge_attr={'penwidth':'10'})
+        if self.getscreenshots:
+            dot.node_atts['penwidth'] = '0'
+        for (key, value) in self.sitemap.items():
+            name = key.pretty()
+            dot.node(name,
+                     label=name,
+                     image=value['image'])
         for (key, value) in self.sitemap.items():
             for key2 in value['outgoing']:
                 dot.edge(key.pretty(), key2.pretty())
@@ -171,15 +214,30 @@ if __name__ == '__main__':
          + 'are both present only one of them is visited.',
         action='store_true')
     parser.add_argument(
-        '--skipbaseback',
-        help='Repress links back to base URL from the sitemap',
+        '--skipself',
+        help='Skip edges pointing to the same pages they are originating from.',
         action='store_true')
     parser.add_argument(
         '--skipbase',
         help='Repress base URL from the sitemap',
         action='store_true')
     parser.add_argument(
+        '--skipbaseback',
+        help='Repress links back to base URL from the sitemap',
+        action='store_true')
+    parser.add_argument(
         '--skipauth',
+        help='Repress authenticaiton URLs containing the given string '
+        + 'from the sitemap')
+    parser.add_argument(
+        '--skipdownload',
+        help='Skip downloading the URLs containing the given string.')
+    parser.add_argument(
+        '--getscreenshots',
+        help='Take screenshots of each page for use as node image.',
+        action='store_true')
+    parser.add_argument(
+        '--skipscreenshot',
         help='Repress authenticaiton URLs containing the given string '
         + 'from the sitemap')
 
@@ -190,6 +248,10 @@ if __name__ == '__main__':
     args = parser.parse_args()
     SitemapUrl.enabled = args.ignoreid
     sitemap = Sitemap(args.baseurl, args.authurl, args.authpayload,
-                      args.skipbaseback, args.skipbase, args.skipauth)
+                      args.skipself, args.skipbase, args.skipbaseback,
+                      args.skipauth, args.skipdownload, args.skipscreenshot,
+                      args.getscreenshots)
     sitemap.crawl()
+    if args.getscreenshots:
+        sitemap.screenshots()
     print sitemap.gen_dot()

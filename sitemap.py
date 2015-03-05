@@ -1,50 +1,22 @@
 '''
 Create a sitemap image using Graphviz
 '''
-import argparse, ast, json, logging, os,  re, requests, sys, urlparse
+import argparse, ast, json, logging, os, requests, sys, urlparse
 from bs4 import BeautifulSoup
 from graphviz import Digraph
 
+try:
+    LOG
+except NameError:
+    logging.basicConfig(
+        filename='%s/%s.log' %
+        (os.path.dirname(os.path.realpath(__file__)),
+         os.path.basename(__file__[:-3])),
+        level=logging.DEBUG)
+    LOG = logging.getLogger('sitemap')
 
-logging.basicConfig(
-    filename='%s/%s.log' %
-    (os.path.dirname(os.path.realpath(__file__)),
-     os.path.basename(__file__[:-3])),
-    level=logging.DEBUG)
-LOG = logging.getLogger('sitemap')
 
-
-class SitemapUrl(str):
-    '''
-    Wrapper for strings that store URLs in order to ignote IDs when
-    comparing URLs.
-
-    '''
-    enabled = True
-    reobf = re.compile('/\d+(?=$|/)')
-
-    def __init__(self, value):
-        ## ignore IDs so URLs with different IDs are considered
-        ## equal
-        self.valueobf = SitemapUrl.reobf.sub('/0', value) \
-                        if SitemapUrl.enabled else value
-        self.valuepretty = urlparse.urlparse(
-            self.valueobf).path[1:].replace('/', '_')
-
-    def __eq__(self, other):
-        return self.valueobf.__eq__(other.valueobf)
-
-    def __ne__(self, other):
-        return self.valueobf.__ne__(other.valueobf)
-
-    def __hash__(self):
-        return self.valueobf.__hash__()
-
-    def pretty(self):
-        '''
-        Return a short nice formated string.
-        '''
-        return self.valuepretty
+from sitemapurl import SitemapUrl
 
 
 class Sitemap(object):

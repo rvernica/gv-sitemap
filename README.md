@@ -56,3 +56,7 @@ Example
 
     python sitemap.py http://www.google.com/intl/en_us/ads/ > sitemap.gv
     dot -Tpng sitemap.gv -o sitemap.png
+
+
+[![Bitdeli Badge](https://d2weczhvl823v0.cloudfront.net/rvernica/gv-sitemap/trend.png)](https://bitdeli.com/free "Bitdeli Badge")
+
